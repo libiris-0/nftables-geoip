@@ -1,0 +1,43 @@
+# Classify connections by destination address and keep the class in ct mark.
+#
+# The ruleset changes only the low 12 bits of mark and ct mark; the high 20 bits
+# are preserved. nft cannot combine a map lookup with other values in a bitwise
+# operation on the same field, so the result is first looked up into meta
+# priority and then written to mark and ct mark with field-to-field bitwise
+# operations. These need a recent nft: tested on 1.1.3, not supported by 1.0.9.
+#
+# priority is borrowed only while it is 0 and reset to 0 at the end of the same
+# rule, so packets leave with their priority unchanged. Packets arriving with a
+# non-zero priority are not classified.
+#
+# Lookups and writes share one rule. If any lookup misses, the rest of the rule
+# is skipped and mark, ct mark and priority stay unchanged.
+
+table inet routing {
+	map geo4 {
+		type ipv4_addr : classid
+		flags interval
+	}
+	map geo6 {
+		type ipv6_addr : classid
+		flags interval
+	}
+	map geoclass {
+		type classid : classid
+		flags interval
+	}
+	chain geomark {
+		type filter hook prerouting priority mangle; policy accept;
+		ct mark & 0xfff != 0 meta mark set meta mark & 0xfffff000 | ct mark & 0xfff return
+		meta priority 0 meta priority set ip daddr map @geo4 \
+			meta priority set meta priority map @geoclass \
+			ct mark set ct mark & 0xfffff000 | meta priority & 0xfff \
+			meta mark set meta mark & 0xfffff000 | meta priority & 0xfff \
+			meta priority set 0
+		meta priority 0 meta priority set ip6 daddr map @geo6 \
+			meta priority set meta priority map @geoclass \
+			ct mark set ct mark & 0xfffff000 | meta priority & 0xfff \
+			meta mark set meta mark & 0xfffff000 | meta priority & 0xfff \
+			meta priority set 0
+	}
+}

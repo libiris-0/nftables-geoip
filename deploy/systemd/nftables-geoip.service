@@ -1,0 +1,10 @@
+[Unit]
+Description=Netfilter Tables GeoIP maps
+After=nftables.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/nftables-geoip/geoipctl restore
+
+[Install]
+WantedBy=nftables.service

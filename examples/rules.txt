@@ -1,0 +1,15 @@
+# Example rules, assuming classes 0x102-0x7fe are available.
+# All European classes lie in 0x300-0x3ff, so a ruleset can match all of Europe
+# with one range (e.g. ct mark 0x300-0x3ff), however Europe is subdivided.
+ESEA     = CN + JP + SG
+EAST_AS  = ESEA + KR + TW + HK
+CAUCASUS = GE + AM + AZ
+
+default        -> 0x200
+@EU - FR       -> 0x301    # exceptions as a difference
+FR             -> 0x302
+DE             -> 0x303 !  # or override an earlier rule with !
+EAST_AS - ESEA -> 0x211
+ESEA           -> 0x212
+CAUCASUS       -> 0x214
+~(@EU + @AS + @NA) -> 0x21e

@@ -1,0 +1,11 @@
+[Unit]
+Description=Update Netfilter Tables GeoIP maps
+Wants=network-online.target
+After=network-online.target nftables-geoip.service
+ConditionMemoryPressure=10%
+ConditionCPUPressure=50%
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/nftables-geoip/geoipctl update
+MemoryMax=2G

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# geoipctl restore | update
+#
+#   restore  load the local copy maps.nft into the three maps; skip if there is none yet
+#   update   if the tag of the latest release of REPO differs from the recorded one,
+#            download its $CONFIG.nft.gz, load it, then replace the local copy and
+#            record the tag
+#
+# If any step fails, the maps in the kernel and the local copy stay unchanged.
+#
+# update uses REPO (owner/name) and CONFIG (configuration name) from the drop-in,
+# and the systemd credential token. Requires bash, curl, jq, gzip and nft.
+#
+# NFTABLES_GEOIP_STATE and NFTABLES_GEOIP_API exist only for the tests, to replace
+# the state directory and the API address.
+set -euo pipefail
+
+STATE=${NFTABLES_GEOIP_STATE:-/var/lib/nftables-geoip}
+API=${NFTABLES_GEOIP_API:-https://api.github.com}
+
+log() { printf '%s\n' "$*" >&2; }
+
+# restore and update never run at the same time: lock this script
+exec 9<"$0"
+flock 9
+
+restore() {
+	if [[ ! -f $STATE/maps.nft ]]; then
+		log "no local copy yet, waiting for the first update"
+		return 0
+	fi
+	nft -f "$STATE/maps.nft"
+}
+
+update() {
+	local auth
+	auth="Authorization: Bearer $(<"$CREDENTIALS_DIRECTORY/token")"
+
+	local release tag url
+	release=$(curl -fsS --max-time 60 -H "$auth" -H "Accept: application/vnd.github+json" \
+		"$API/repos/$REPO/releases/latest")
+	tag=$(jq -r .tag_name <<<"$release")
+	if [[ $tag == "$(cat "$STATE/tag" 2>/dev/null)" ]]; then
+		log "already up to date ($tag)"
+		return 0
+	fi
+	url=$(jq -r --arg n "$CONFIG.nft.gz" '.assets[] | select(.name == $n) | .url' <<<"$release")
+	[[ -n $url ]] || { log "release $tag has no $CONFIG.nft.gz"; return 1; }
+
+	mkdir -p "$STATE"
+	trap 'rm -f "$STATE/maps.nft.new"' EXIT
+	curl -fsSL --max-time 600 -H "$auth" -H "Accept: application/octet-stream" "$url" |
+		gzip -dc >"$STATE/maps.nft.new"
+	nft -f "$STATE/maps.nft.new"
+	mv "$STATE/maps.nft.new" "$STATE/maps.nft"
+	printf '%s\n' "$tag" >"$STATE/tag"
+	log "updated to $tag"
+}
+
+case ${1:-} in
+	restore) restore ;;
+	update) update ;;
+	*) log "usage: $0 restore|update"; exit 2 ;;
+esac
